@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+
+# Kaggle/runtime outputs
+*.weights
+*.h5
+*.keras
+logs/
+outputs/
+
+# Large pretrained model weights exceed normal GitHub limits.
+pretrained_model/**/*.bin
+pretrained_model/**/*.ckpt*
+
+# Local OS metadata
+.DS_Store
+Thumbs.db
