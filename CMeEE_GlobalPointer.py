@@ -33,6 +33,7 @@ epochs = 10
 batch_size = 16
 learning_rate = 2e-5
 categories = set()
+TQDM_KWARGS = dict(ncols=100, mininterval=2, leave=False)
 
 # bert配置
 INPUT_DIR = os.environ.get(
@@ -148,7 +149,7 @@ class NamedEntityRecognizer(object):
         token_ids = tokenizer.tokens_to_ids(tokens)
         segment_ids = [0] * len(token_ids)
         token_ids, segment_ids = to_array([token_ids], [segment_ids])
-        scores = model.predict([token_ids, segment_ids])[0]
+        scores = model.predict([token_ids, segment_ids], verbose=0)[0]
         scores[:, [0, -1]] -= np.inf
         scores[:, :, [0, -1]] -= np.inf
         entities = []
@@ -166,7 +167,7 @@ def evaluate(data):
     """评测函数
     """
     X, Y, Z = 1e-10, 1e-10, 1e-10
-    for d in tqdm(data, ncols=100):
+    for d in tqdm(data, **TQDM_KWARGS):
         R = set(NER.recognize(d[0]))
         T = set([tuple(i) for i in d[1:]])
         X += len(R & T)
@@ -199,7 +200,7 @@ def predict_to_file(in_file, out_file):
     可以提交到 https://tianchi.aliyun.com/dataset/dataDetail?dataId=95414
     """
     data = json.load(open(in_file))
-    for d in tqdm(data, ncols=100):
+    for d in tqdm(data, **TQDM_KWARGS):
         d['entities'] = []
         entities = NER.recognize(d['text'])
         for e in entities:
