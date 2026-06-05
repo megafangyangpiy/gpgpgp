@@ -122,3 +122,27 @@ python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
 - 已将 `CMeEE_GlobalPointer.py` 恢复为默认开启 sparse loss mask：
   - `sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'`
 - 后续仍可通过 `GP_SPARSE_LOSS_MASK=0` 关闭该机制做临时对照。
+
+## 2026-06-05 13:21:09 +08:00
+
+### `GP_SPARSE_MAX_SPAN_LEN=256` 单 epoch 结果
+
+- 实验设置：
+  - `GP_SPARSE_MAX_SPAN_LEN=256`
+  - 其余 sparse 设置保持当前默认逻辑。
+- 1 epoch 结果：
+  - `loss = 0.9192`
+  - `global_pointer_f1_score = 0.4490`
+  - `valid f1 = 0.58982`
+  - `precision = 0.71166`
+  - `recall = 0.50360`
+  - 单 epoch 时间约 `397s`
+
+### 初步观察
+
+- 相比 `GP_SPARSE_MAX_SPAN_LEN=128` 且开启 sparse loss mask 的结果：
+  - `valid f1` 从 `0.62948` 降到 `0.58982`。
+  - `recall` 从 `0.66773` 降到 `0.50360`。
+  - `precision` 从 `0.59538` 升到 `0.71166`。
+- 该结果表现为 precision 提高但 recall 明显下降，暂时不建议把 `256` 作为默认配置。
+- 当前更建议继续保留 `GP_SPARSE_MAX_SPAN_LEN=128` 做完整 10 epoch 实验。
