@@ -41,3 +41,18 @@
 - `baseline.txt` 中 baseline 训练 loss 正常，最佳 overall F1 为 `0.65781`。
 - `full.txt` 中 full 训练从第 1 个 epoch 起出现 `loss: nan`，该结果不能作为有效论文实验结果。
 - 下一轮优先重新运行 `full`，确认 loss 不再为 `nan`；baseline 可暂时沿用当前正常结果，最终论文对比时再统一复跑。
+
+## 2026-06-05 18:29:46 +08:00
+
+### 修改范围
+
+- `CMeEE_GlobalPointer.py`
+  - 增加运行日志文件保存：默认在 `GP_OUTPUT_DIR` 下生成 `{ablation}_run_{timestamp}.log`，同步保存终端输出。
+  - 增加结构化指标日志：默认在 `GP_OUTPUT_DIR` 下生成 `{ablation}_metrics_{timestamp}.jsonl`，每个 epoch 追加一行训练日志、验证指标和当前 best F1。
+  - 增加 `GP_RUN_LOG_PATH`、`GP_METRICS_LOG_PATH`、`GP_DISABLE_FILE_LOG` 环境变量，允许自定义日志路径或关闭文件日志。
+
+### 使用方式
+
+- 默认运行不需要额外参数，日志会自动写入 `GP_OUTPUT_DIR`。
+- 如需固定文件名，可设置 `GP_RUN_LOG_PATH` 和 `GP_METRICS_LOG_PATH`。
+- 如只想终端输出，可设置 `GP_DISABLE_FILE_LOG=1`。

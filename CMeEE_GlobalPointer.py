@@ -2,9 +2,12 @@
 # 用GlobalPointer做中文命名实体识别
 # 数据集 https://tianchi.aliyun.com/dataset/dataDetail?dataId=95414
 
+import atexit
+import datetime
 import json
 import numpy as np
 import os
+import sys
 
 os.environ.setdefault('TF_KERAS', '1')
 os.environ.setdefault('TF_USE_LEGACY_KERAS', '1')
@@ -95,6 +98,70 @@ BEST_MODEL_PATH = os.path.join(
 )
 PREDICT_PATH = os.path.join(OUTPUT_DIR, 'CMeEE_test.json')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+RUN_START_TIME = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+RUN_LOG_PATH = os.environ.get(
+    'GP_RUN_LOG_PATH',
+    os.path.join(OUTPUT_DIR, '%s_run_%s.log' % (ABLATION_MODE, RUN_START_TIME))
+)
+METRICS_LOG_PATH = os.environ.get(
+    'GP_METRICS_LOG_PATH',
+    os.path.join(OUTPUT_DIR, '%s_metrics_%s.jsonl' % (
+        ABLATION_MODE, RUN_START_TIME
+    ))
+)
+SAVE_FILE_LOGS = not env_flag('GP_DISABLE_FILE_LOG', False)
+
+
+class TeeStream(object):
+    def __init__(self, *streams):
+        self.streams = streams
+        self.encoding = getattr(streams[0], 'encoding', 'utf-8')
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+            if data.endswith('\n'):
+                stream.flush()
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return any(
+            getattr(stream, 'isatty', lambda: False)()
+            for stream in self.streams
+        )
+
+
+def setup_file_logging():
+    if not SAVE_FILE_LOGS:
+        return None
+    log_dir = os.path.dirname(RUN_LOG_PATH)
+    metrics_dir = os.path.dirname(METRICS_LOG_PATH)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    if metrics_dir:
+        os.makedirs(metrics_dir, exist_ok=True)
+    log_file = open(RUN_LOG_PATH, 'a', encoding='utf-8', buffering=1)
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    sys.stdout = TeeStream(original_stdout, log_file)
+    sys.stderr = TeeStream(original_stderr, log_file)
+
+    def close_file_logging():
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        log_file.close()
+
+    atexit.register(close_file_logging)
+    print('run_log_path: %s' % RUN_LOG_PATH)
+    print('metrics_log_path: %s' % METRICS_LOG_PATH)
+    return log_file
+
+
+RUN_LOG_FILE = setup_file_logging()
 
 config_path = os.path.join(PRETRAINED_DIR, 'bert_config.json')
 checkpoint_path = os.path.join(PRETRAINED_DIR, 'bert_model.ckpt')
@@ -490,6 +557,32 @@ def count_boundary_errors(predicted, gold):
     return errors
 
 
+def to_jsonable(value):
+    if isinstance(value, dict):
+        return dict((key, to_jsonable(val)) for key, val in value.items())
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def append_metrics_log(epoch, train_logs, metrics, best_val_f1):
+    if not SAVE_FILE_LOGS:
+        return
+    record = {
+        'epoch': epoch + 1,
+        'ablation': ABLATION_MODE,
+        'train': to_jsonable(train_logs or {}),
+        'valid': to_jsonable(metrics),
+        'best_val_f1': best_val_f1,
+        'run_log_path': RUN_LOG_PATH,
+        'metrics_log_path': METRICS_LOG_PATH
+    }
+    with open(METRICS_LOG_PATH, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+
 def evaluate(data):
     """评测函数
     """
@@ -563,6 +656,7 @@ class Evaluator(keras.callbacks.Callback):
         if f1 >= self.best_val_f1:
             self.best_val_f1 = f1
             model.save_weights(BEST_MODEL_PATH)
+        append_metrics_log(epoch, logs, metrics, self.best_val_f1)
         print(
             'valid: f1: %.5f, precision: %.5f, recall: %.5f, '
             'nested_context_f1: %.5f, nested_f1: %.5f, '
