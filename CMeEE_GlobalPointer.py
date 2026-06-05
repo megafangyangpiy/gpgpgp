@@ -22,7 +22,7 @@ from bert4keras.layers import GlobalPointer
 from bert4keras.models import build_transformer_model
 from bert4keras.tokenizers import Tokenizer
 from bert4keras.snippets import sequence_padding, DataGenerator
-from bert4keras.snippets import open, to_array
+from bert4keras.snippets import open
 from keras.models import Model
 from tqdm import tqdm
 
@@ -31,6 +31,7 @@ Adam = keras.optimizers.Adam
 maxlen = 256
 epochs = 10
 batch_size = 16
+eval_batch_size = int(os.environ.get('GP_EVAL_BATCH_SIZE', '16'))
 learning_rate = 2e-5
 categories = set()
 TQDM_KWARGS = dict(ncols=100, mininterval=2, leave=False)
@@ -144,20 +145,42 @@ class NamedEntityRecognizer(object):
     """命名实体识别器
     """
     def recognize(self, text, threshold=0):
-        tokens = tokenizer.tokenize(text, maxlen=512)
-        mapping = tokenizer.rematch(text, tokens)
-        token_ids = tokenizer.tokens_to_ids(tokens)
-        segment_ids = [0] * len(token_ids)
-        token_ids, segment_ids = to_array([token_ids], [segment_ids])
-        scores = model.predict([token_ids, segment_ids], verbose=0)[0]
-        scores[:, [0, -1]] -= np.inf
-        scores[:, :, [0, -1]] -= np.inf
-        entities = []
-        for l, start, end in zip(*np.where(scores > threshold)):
-            entities.append(
-                (mapping[start][0], mapping[end][-1], categories[l])
-            )
-        return entities
+        return self.recognize_batch([text], threshold=threshold)[0]
+
+    def recognize_batch(self, texts, threshold=0):
+        batch_token_ids, batch_segment_ids = [], []
+        mappings, token_lengths = [], []
+        for text in texts:
+            tokens = tokenizer.tokenize(text, maxlen=512)
+            mapping = tokenizer.rematch(text, tokens)
+            token_ids = tokenizer.tokens_to_ids(tokens)
+            segment_ids = [0] * len(token_ids)
+            batch_token_ids.append(token_ids)
+            batch_segment_ids.append(segment_ids)
+            mappings.append(mapping)
+            token_lengths.append(len(token_ids))
+
+        batch_token_ids = sequence_padding(batch_token_ids)
+        batch_segment_ids = sequence_padding(batch_segment_ids)
+        batch_scores = model.predict(
+            [batch_token_ids, batch_segment_ids],
+            verbose=0
+        )
+
+        batch_entities = []
+        for scores, mapping, token_length in zip(
+            batch_scores, mappings, token_lengths
+        ):
+            scores = scores[:, :token_length, :token_length]
+            scores[:, [0, -1]] -= np.inf
+            scores[:, :, [0, -1]] -= np.inf
+            entities = []
+            for l, start, end in zip(*np.where(scores > threshold)):
+                entities.append(
+                    (mapping[start][0], mapping[end][-1], categories[l])
+                )
+            batch_entities.append(entities)
+        return batch_entities
 
 
 NER = NamedEntityRecognizer()
@@ -167,12 +190,15 @@ def evaluate(data):
     """评测函数
     """
     X, Y, Z = 1e-10, 1e-10, 1e-10
-    for d in tqdm(data, **TQDM_KWARGS):
-        R = set(NER.recognize(d[0]))
-        T = set([tuple(i) for i in d[1:]])
-        X += len(R & T)
-        Y += len(R)
-        Z += len(T)
+    for i in tqdm(range(0, len(data), eval_batch_size), **TQDM_KWARGS):
+        batch_data = data[i:i + eval_batch_size]
+        batch_entities = NER.recognize_batch([d[0] for d in batch_data])
+        for d, entities in zip(batch_data, batch_entities):
+            R = set(entities)
+            T = set([tuple(i) for i in d[1:]])
+            X += len(R & T)
+            Y += len(R)
+            Z += len(T)
     f1, precision, recall = 2 * X / (Y + Z), X / Y, X / Z
     return f1, precision, recall
 
