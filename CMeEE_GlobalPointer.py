@@ -16,7 +16,7 @@ if not hasattr(np, '_no_nep50_warning'):
         return decorator
     np._no_nep50_warning = _no_nep50_warning
 
-from bert4keras.backend import keras, K
+from bert4keras.backend import keras, K, tf
 from bert4keras.backend import multilabel_categorical_crossentropy
 from bert4keras.layers import GlobalPointer
 from bert4keras.models import build_transformer_model
@@ -32,6 +32,9 @@ maxlen = 256
 epochs = 10
 batch_size = 16
 eval_batch_size = int(os.environ.get('GP_EVAL_BATCH_SIZE', '16'))
+sparse_max_span_len = int(os.environ.get('GP_SPARSE_MAX_SPAN_LEN', '128'))
+sparse_topk = int(os.environ.get('GP_SPARSE_TOPK', '512'))
+sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'
 learning_rate = 2e-5
 categories = set()
 TQDM_KWARGS = dict(ncols=100, mininterval=2, leave=False)
@@ -112,9 +115,31 @@ class data_generator(DataGenerator):
                 batch_token_ids, batch_segment_ids, batch_labels = [], [], []
 
 
+def build_sparse_span_mask(seq_len):
+    idxs = tf.range(seq_len)
+    start = tf.expand_dims(idxs, 1)
+    end = tf.expand_dims(idxs, 0)
+    span_len = end - start + 1
+    valid_mask = tf.cast(span_len >= 1, K.floatx())
+    if sparse_max_span_len > 0:
+        valid_mask *= tf.cast(span_len <= sparse_max_span_len, K.floatx())
+    return tf.reshape(valid_mask, (1, 1, seq_len, seq_len))
+
+
+def apply_sparse_train_mask(y_true, y_pred):
+    if not sparse_loss_mask:
+        return y_pred
+    seq_len = tf.shape(y_pred)[-1]
+    valid_mask = build_sparse_span_mask(seq_len)
+    gold_mask = tf.cast(y_true > 0, K.floatx())
+    valid_mask = tf.maximum(valid_mask, gold_mask)
+    return y_pred - (1.0 - valid_mask) * 1e12
+
+
 def global_pointer_crossentropy(y_true, y_pred):
     """给GlobalPointer设计的交叉熵
     """
+    y_pred = apply_sparse_train_mask(y_true, y_pred)
     bh = K.prod(K.shape(y_pred)[:2])
     y_true = K.reshape(y_true, (bh, -1))
     y_pred = K.reshape(y_pred, (bh, -1))
@@ -124,6 +149,7 @@ def global_pointer_crossentropy(y_true, y_pred):
 def global_pointer_f1_score(y_true, y_pred):
     """给GlobalPointer设计的F1
     """
+    y_pred = apply_sparse_train_mask(y_true, y_pred)
     y_pred = K.cast(K.greater(y_pred, 0), K.floatx())
     return 2 * K.sum(y_true * y_pred) / K.sum(y_true + y_pred)
 
@@ -139,6 +165,39 @@ model.compile(
     optimizer=Adam(learning_rate),
     metrics=[global_pointer_f1_score]
 )
+
+
+def apply_sparse_decode(scores):
+    seq_len = scores.shape[-1]
+    start = np.arange(seq_len)[:, None]
+    end = np.arange(seq_len)[None, :]
+    valid_mask = end >= start
+    if sparse_max_span_len > 0:
+        valid_mask &= (end - start + 1) <= sparse_max_span_len
+    scores[:, ~valid_mask] = -np.inf
+    return scores
+
+
+def select_sparse_entities(scores, mapping, threshold=0):
+    scores = apply_sparse_decode(scores)
+    scores[:, [0, -1]] = -np.inf
+    scores[:, :, [0, -1]] = -np.inf
+    labels, starts, ends = np.where(scores > threshold)
+
+    if sparse_topk > 0 and len(labels) > sparse_topk:
+        values = scores[labels, starts, ends]
+        top_indices = np.argpartition(values, -sparse_topk)[-sparse_topk:]
+        top_indices = top_indices[np.argsort(values[top_indices])[::-1]]
+        labels = labels[top_indices]
+        starts = starts[top_indices]
+        ends = ends[top_indices]
+
+    entities = []
+    for label, start, end in zip(labels, starts, ends):
+        entities.append(
+            (mapping[start][0], mapping[end][-1], categories[label])
+        )
+    return entities
 
 
 class NamedEntityRecognizer(object):
@@ -172,14 +231,9 @@ class NamedEntityRecognizer(object):
             batch_scores, mappings, token_lengths
         ):
             scores = scores[:, :token_length, :token_length]
-            scores[:, [0, -1]] -= np.inf
-            scores[:, :, [0, -1]] -= np.inf
-            entities = []
-            for l, start, end in zip(*np.where(scores > threshold)):
-                entities.append(
-                    (mapping[start][0], mapping[end][-1], categories[l])
-                )
-            batch_entities.append(entities)
+            batch_entities.append(
+                select_sparse_entities(scores, mapping, threshold)
+            )
         return batch_entities
 
 
