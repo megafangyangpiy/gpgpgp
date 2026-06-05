@@ -72,12 +72,13 @@ USE_STRUCTURE_DECODING = env_flag(
     ABLATION_MODE not in {'baseline', 'no_structure_decoding'}
 )
 STRUCTURE_TOPK = env_int('GP_STRUCTURE_TOPK', 512)
-STRUCTURE_CANDIDATE_MARGIN = env_float('GP_STRUCTURE_CANDIDATE_MARGIN', 1.0)
-INNER_OUTER_LAMBDA = env_float('GP_INNER_OUTER_LAMBDA', 0.35)
-SHARED_BOUNDARY_LAMBDA = env_float('GP_SHARED_BOUNDARY_LAMBDA', 0.15)
-CROSSING_PENALTY_LAMBDA = env_float('GP_CROSSING_PENALTY_LAMBDA', 0.45)
-CONSISTENCY_LOSS_WEIGHT = env_float('GP_CONSISTENCY_LOSS_WEIGHT', 0.1)
-PRUNE_CROSSING = env_flag('GP_PRUNE_CROSSING', True)
+STRUCTURE_CANDIDATE_MARGIN = env_float('GP_STRUCTURE_CANDIDATE_MARGIN', 0.25)
+INNER_OUTER_LAMBDA = env_float('GP_INNER_OUTER_LAMBDA', 0.15)
+SHARED_BOUNDARY_LAMBDA = env_float('GP_SHARED_BOUNDARY_LAMBDA', 0.05)
+CROSSING_PENALTY_LAMBDA = env_float('GP_CROSSING_PENALTY_LAMBDA', 0.35)
+CONSISTENCY_LOSS_WEIGHT = env_float('GP_CONSISTENCY_LOSS_WEIGHT', 0.03)
+CONSISTENCY_LOSS_CLIP = env_float('GP_CONSISTENCY_LOSS_CLIP', 30.0)
+PRUNE_CROSSING = env_flag('GP_PRUNE_CROSSING', USE_SPAN_PAIR_RELATION)
 
 # bert配置
 INPUT_DIR = os.environ.get(
@@ -211,7 +212,12 @@ def global_pointer_crossentropy(y_true, y_pred):
     y_pred = K.reshape(y_pred, (bh, -1))
     loss = K.mean(multilabel_categorical_crossentropy(y_true_binary, y_pred))
     if USE_CONSISTENCY_LOSS:
-        nested_loss = K.sum(nested_mask * stable_softplus(-y_pred))
+        safe_y_pred = K.clip(
+            y_pred,
+            -CONSISTENCY_LOSS_CLIP,
+            CONSISTENCY_LOSS_CLIP
+        )
+        nested_loss = K.sum(nested_mask * stable_softplus(-safe_y_pred))
         nested_loss = nested_loss / (K.sum(nested_mask) + K.epsilon())
         loss = loss + CONSISTENCY_LOSS_WEIGHT * nested_loss
     return loss
@@ -241,13 +247,22 @@ model.compile(
 
 print(
     'ablation: %s, span_pair_relation: %s, consistency_loss: %s, '
-    'structure_decoding: %s, structure_topk: %d, candidate_margin: %.2f' % (
+    'structure_decoding: %s, prune_crossing: %s, structure_topk: %d, '
+    'candidate_margin: %.2f, inner_outer_lambda: %.2f, '
+    'shared_boundary_lambda: %.2f, crossing_penalty_lambda: %.2f, '
+    'consistency_loss_weight: %.3f, consistency_loss_clip: %.1f' % (
         ABLATION_MODE,
         USE_SPAN_PAIR_RELATION,
         USE_CONSISTENCY_LOSS,
         USE_STRUCTURE_DECODING,
+        PRUNE_CROSSING,
         STRUCTURE_TOPK,
-        STRUCTURE_CANDIDATE_MARGIN
+        STRUCTURE_CANDIDATE_MARGIN,
+        INNER_OUTER_LAMBDA,
+        SHARED_BOUNDARY_LAMBDA,
+        CROSSING_PENALTY_LAMBDA,
+        CONSISTENCY_LOSS_WEIGHT,
+        CONSISTENCY_LOSS_CLIP
     )
 )
 

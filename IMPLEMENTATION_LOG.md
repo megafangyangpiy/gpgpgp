@@ -25,3 +25,19 @@
 
 - 需要运行语法检查。
 - 需要在数据和预训练模型可用环境下分别跑 `baseline` 与 `full`，比较 overall F1 与 nested F1。
+
+## 2026-06-05 18:23:10 +08:00
+
+### 修改范围
+
+- `CMeEE_GlobalPointer.py`
+  - 修复 `full` 模式下训练 `loss: nan` 的数值稳定性问题：一致性损失现在会先裁剪 GlobalPointer logits，再计算 `softplus`，避免 masked span 位置触发 `0 * inf = nan`。
+  - 将 `PRUNE_CROSSING` 默认值绑定到 `USE_SPAN_PAIR_RELATION`，使 `GP_ABLATION=no_relation` 默认不再使用 crossing pruning，保证消融更干净。
+  - 收紧 full 默认结构解码超参：降低候选 margin、inner/outer support、shared-boundary support、一致性损失权重，减少结构模块对 baseline 预测分布的过度扰动。
+  - 扩展启动日志，打印 pruning、结构权重、一致性损失权重和 clip 值，方便复现实验。
+
+### 实验判断
+
+- `baseline.txt` 中 baseline 训练 loss 正常，最佳 overall F1 为 `0.65781`。
+- `full.txt` 中 full 训练从第 1 个 epoch 起出现 `loss: nan`，该结果不能作为有效论文实验结果。
+- 下一轮优先重新运行 `full`，确认 loss 不再为 `nan`；baseline 可暂时沿用当前正常结果，最终论文对比时再统一复跑。
