@@ -16,7 +16,7 @@ if not hasattr(np, '_no_nep50_warning'):
         return decorator
     np._no_nep50_warning = _no_nep50_warning
 
-from bert4keras.backend import keras, K, tf
+from bert4keras.backend import keras, K
 from bert4keras.backend import multilabel_categorical_crossentropy
 from bert4keras.layers import GlobalPointer
 from bert4keras.models import build_transformer_model
@@ -32,28 +32,6 @@ maxlen = 256
 epochs = 10
 batch_size = 16
 eval_batch_size = int(os.environ.get('GP_EVAL_BATCH_SIZE', '16'))
-experiment_mode = int(os.environ.get('GP_EXPERIMENT_MODE', '2'))
-if experiment_mode not in (1, 2, 3):
-    raise ValueError('GP_EXPERIMENT_MODE must be 1, 2, or 3.')
-
-if experiment_mode == 1:
-    experiment_name = 'original_globalpointer'
-    sparse_max_span_len = 0
-    sparse_topk = 0
-    sparse_loss_mask = False
-elif experiment_mode == 3:
-    experiment_name = 'graph_globalpointer'
-    sparse_max_span_len = 0
-    sparse_topk = 0
-    sparse_loss_mask = False
-else:
-    experiment_name = 'sparse_globalpointer'
-    sparse_max_span_len = int(os.environ.get('GP_SPARSE_MAX_SPAN_LEN', '128'))
-    sparse_topk = int(os.environ.get('GP_SPARSE_TOPK', '512'))
-    sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'
-graph_topk = int(os.environ.get('GP_GRAPH_TOPK', '256'))
-graph_lambda = float(os.environ.get('GP_GRAPH_LAMBDA', '0.2'))
-graph_isolated_penalty = float(os.environ.get('GP_GRAPH_ISOLATED_PENALTY', '0.5'))
 learning_rate = 2e-5
 categories = set()
 TQDM_KWARGS = dict(ncols=100, mininterval=2, leave=False)
@@ -69,25 +47,14 @@ PRETRAINED_DIR = os.path.join(
 )
 DATA_DIR = os.path.join(INPUT_DIR, 'data', 'CMeEE')
 BEST_MODEL_PATH = os.path.join(
-    OUTPUT_DIR, 'best_model_cmeee_%s.weights' % experiment_name
+    OUTPUT_DIR, 'best_model_cmeee_globalpointer.weights'
 )
-PREDICT_PATH = os.path.join(OUTPUT_DIR, 'CMeEE_test_%s.json' % experiment_name)
+PREDICT_PATH = os.path.join(OUTPUT_DIR, 'CMeEE_test.json')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 config_path = os.path.join(PRETRAINED_DIR, 'bert_config.json')
 checkpoint_path = os.path.join(PRETRAINED_DIR, 'bert_model.ckpt')
 dict_path = os.path.join(PRETRAINED_DIR, 'vocab.txt')
-
-print('experiment_mode: %s (%s)' % (experiment_mode, experiment_name))
-print(
-    'sparse_config: max_span_len=%s, topk=%s, loss_mask=%s' %
-    (sparse_max_span_len, sparse_topk, sparse_loss_mask)
-)
-print(
-    'graph_config: topk=%s, lambda=%s, isolated_penalty=%s' %
-    (graph_topk, graph_lambda, graph_isolated_penalty)
-)
-print('best_model_path: %s' % BEST_MODEL_PATH)
 
 
 def load_data(filename):
@@ -145,31 +112,9 @@ class data_generator(DataGenerator):
                 batch_token_ids, batch_segment_ids, batch_labels = [], [], []
 
 
-def build_sparse_span_mask(seq_len):
-    idxs = tf.range(seq_len)
-    start = tf.expand_dims(idxs, 1)
-    end = tf.expand_dims(idxs, 0)
-    span_len = end - start + 1
-    valid_mask = tf.cast(span_len >= 1, K.floatx())
-    if sparse_max_span_len > 0:
-        valid_mask *= tf.cast(span_len <= sparse_max_span_len, K.floatx())
-    return tf.reshape(valid_mask, (1, 1, seq_len, seq_len))
-
-
-def apply_sparse_train_mask(y_true, y_pred):
-    if not sparse_loss_mask:
-        return y_pred
-    seq_len = tf.shape(y_pred)[-1]
-    valid_mask = build_sparse_span_mask(seq_len)
-    gold_mask = tf.cast(y_true > 0, K.floatx())
-    valid_mask = tf.maximum(valid_mask, gold_mask)
-    return y_pred - (1.0 - valid_mask) * 1e12
-
-
 def global_pointer_crossentropy(y_true, y_pred):
     """给GlobalPointer设计的交叉熵
     """
-    y_pred = apply_sparse_train_mask(y_true, y_pred)
     bh = K.prod(K.shape(y_pred)[:2])
     y_true = K.reshape(y_true, (bh, -1))
     y_pred = K.reshape(y_pred, (bh, -1))
@@ -179,7 +124,6 @@ def global_pointer_crossentropy(y_true, y_pred):
 def global_pointer_f1_score(y_true, y_pred):
     """给GlobalPointer设计的F1
     """
-    y_pred = apply_sparse_train_mask(y_true, y_pred)
     y_pred = K.cast(K.greater(y_pred, 0), K.floatx())
     return 2 * K.sum(y_true * y_pred) / K.sum(y_true + y_pred)
 
@@ -195,119 +139,6 @@ model.compile(
     optimizer=Adam(learning_rate),
     metrics=[global_pointer_f1_score]
 )
-
-
-def apply_sparse_decode(scores):
-    if experiment_mode == 1:
-        return scores
-    seq_len = scores.shape[-1]
-    start = np.arange(seq_len)[:, None]
-    end = np.arange(seq_len)[None, :]
-    valid_mask = end >= start
-    if sparse_max_span_len > 0:
-        valid_mask &= (end - start + 1) <= sparse_max_span_len
-    scores[:, ~valid_mask] = -np.inf
-    return scores
-
-
-def select_sparse_entities(scores, mapping, threshold=0):
-    if experiment_mode == 3:
-        return select_graph_entities(scores, mapping, threshold)
-
-    scores = apply_sparse_decode(scores)
-    scores[:, [0, -1]] = -np.inf
-    scores[:, :, [0, -1]] = -np.inf
-    labels, starts, ends = np.where(scores > threshold)
-
-    if sparse_topk > 0 and len(labels) > sparse_topk:
-        values = scores[labels, starts, ends]
-        top_indices = np.argpartition(values, -sparse_topk)[-sparse_topk:]
-        top_indices = top_indices[np.argsort(values[top_indices])[::-1]]
-        labels = labels[top_indices]
-        starts = starts[top_indices]
-        ends = ends[top_indices]
-
-    entities = []
-    for label, start, end in zip(labels, starts, ends):
-        entities.append(
-            (mapping[start][0], mapping[end][-1], categories[label])
-        )
-    return entities
-
-
-def select_graph_entities(scores, mapping, threshold=0):
-    scores = scores.copy()
-    seq_len = scores.shape[-1]
-    start_grid = np.arange(seq_len)[:, None]
-    end_grid = np.arange(seq_len)[None, :]
-    valid_mask = end_grid >= start_grid
-    scores[:, ~valid_mask] = -np.inf
-    scores[:, [0, -1]] = -np.inf
-    scores[:, :, [0, -1]] = -np.inf
-
-    labels, starts, ends = np.where(np.isfinite(scores))
-    if len(labels) == 0:
-        return []
-
-    values = scores[labels, starts, ends]
-    if graph_topk > 0 and len(values) > graph_topk:
-        top_indices = np.argpartition(values, -graph_topk)[-graph_topk:]
-        labels = labels[top_indices]
-        starts = starts[top_indices]
-        ends = ends[top_indices]
-        values = values[top_indices]
-
-    order = np.argsort(values)[::-1]
-    labels = labels[order]
-    starts = starts[order]
-    ends = ends[order]
-    values = values[order]
-    refined_values = values + graph_lambda * span_graph_residual(
-        starts, ends, values
-    )
-
-    entities = []
-    for label, start, end, value in zip(labels, starts, ends, refined_values):
-        if value > threshold:
-            entities.append(
-                (mapping[start][0], mapping[end][-1], categories[label])
-            )
-    return entities
-
-
-def span_graph_residual(starts, ends, values):
-    if len(values) <= 1 or graph_lambda == 0:
-        return np.zeros_like(values)
-
-    s_i = starts[:, None]
-    e_i = ends[:, None]
-    s_j = starts[None, :]
-    e_j = ends[None, :]
-
-    same = (s_i == s_j) & (e_i == e_j)
-    contains = (s_i <= s_j) & (e_i >= e_j) & ~same
-    inside = (s_i >= s_j) & (e_i <= e_j) & ~same
-    overlaps = (s_i <= e_j) & (s_j <= e_i) & ~(contains | inside | same)
-    same_start = (s_i == s_j) & ~same
-    same_end = (e_i == e_j) & ~same
-
-    relation = (
-        0.35 * contains.astype('float32') +
-        0.35 * inside.astype('float32') +
-        0.20 * overlaps.astype('float32') +
-        0.10 * same_start.astype('float32') +
-        0.10 * same_end.astype('float32')
-    )
-    np.fill_diagonal(relation, 0)
-
-    denom = relation.sum(axis=1)
-    neighbor_signal = relation.dot(np.tanh(values))
-    residual = np.zeros_like(values)
-    valid = denom > 0
-    bounded_values = np.tanh(values)
-    residual[valid] = neighbor_signal[valid] / denom[valid] - bounded_values[valid]
-    residual[~valid] = -graph_isolated_penalty * bounded_values[~valid]
-    return residual
 
 
 class NamedEntityRecognizer(object):
@@ -341,9 +172,14 @@ class NamedEntityRecognizer(object):
             batch_scores, mappings, token_lengths
         ):
             scores = scores[:, :token_length, :token_length]
-            batch_entities.append(
-                select_sparse_entities(scores, mapping, threshold)
-            )
+            scores[:, [0, -1]] -= np.inf
+            scores[:, :, [0, -1]] -= np.inf
+            entities = []
+            for l, start, end in zip(*np.where(scores > threshold)):
+                entities.append(
+                    (mapping[start][0], mapping[end][-1], categories[l])
+                )
+            batch_entities.append(entities)
         return batch_entities
 
 
