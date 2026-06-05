@@ -3,6 +3,7 @@
 # 数据集 https://tianchi.aliyun.com/dataset/dataDetail?dataId=95414
 
 import atexit
+import builtins
 import datetime
 import json
 import numpy as np
@@ -144,7 +145,12 @@ def setup_file_logging():
         os.makedirs(log_dir, exist_ok=True)
     if metrics_dir:
         os.makedirs(metrics_dir, exist_ok=True)
-    log_file = open(RUN_LOG_PATH, 'a', encoding='utf-8', buffering=1)
+    log_file = builtins.open(
+        RUN_LOG_PATH,
+        'a',
+        encoding='utf-8',
+        buffering=1
+    )
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     sys.stdout = TeeStream(original_stdout, log_file)
@@ -579,7 +585,7 @@ def append_metrics_log(epoch, train_logs, metrics, best_val_f1):
         'run_log_path': RUN_LOG_PATH,
         'metrics_log_path': METRICS_LOG_PATH
     }
-    with open(METRICS_LOG_PATH, 'a', encoding='utf-8') as f:
+    with builtins.open(METRICS_LOG_PATH, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 

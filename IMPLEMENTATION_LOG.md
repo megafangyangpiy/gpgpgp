@@ -56,3 +56,17 @@
 - 默认运行不需要额外参数，日志会自动写入 `GP_OUTPUT_DIR`。
 - 如需固定文件名，可设置 `GP_RUN_LOG_PATH` 和 `GP_METRICS_LOG_PATH`。
 - 如只想终端输出，可设置 `GP_DISABLE_FILE_LOG=1`。
+
+## 2026-06-05 22:38:05 +08:00
+
+### 修改范围
+
+- `CMeEE_GlobalPointer.py`
+  - 修复运行日志保存时报错 `open.__init__() got an unexpected keyword argument 'buffering'`。
+  - 原因是脚本中 `from bert4keras.snippets import open` 覆盖了 Python 内置 `open`；日志文件写入现在显式使用 `builtins.open`。
+  - 同步将 epoch 指标 `.jsonl` 写入也改为 `builtins.open`，避免同类问题。
+
+### 验证重点
+
+- 下一次运行时应能正常打印 `run_log_path` 与 `metrics_log_path`。
+- 如果仍在 Kaggle notebook 中运行，日志文件会写入当前 `GP_OUTPUT_DIR`。
