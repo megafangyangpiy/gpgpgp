@@ -90,3 +90,35 @@ python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
   - `precision`
   - `recall`
   - 训练时间和显存是否变化
+
+## 2026-06-05 13:07:57 +08:00
+
+### Sparse loss mask 对照实验结果
+
+- 开启 sparse loss mask 的 1 epoch 结果：
+  - `loss = 0.8968`
+  - `global_pointer_f1_score = 0.4581`
+  - `valid f1 = 0.62948`
+  - `precision = 0.59538`
+  - `recall = 0.66773`
+  - 单 epoch 时间约 `416s`
+- 关闭 sparse loss mask 的 1 epoch 结果：
+  - `loss = 0.9039`
+  - `global_pointer_f1_score = 0.4555`
+  - `valid f1 = 0.60200`
+  - `precision = 0.67401`
+  - `recall = 0.54389`
+  - 单 epoch 时间约 `400s`
+
+### 初步结论
+
+- 关闭 sparse loss mask 后 precision 上升，但 recall 明显下降。
+- `valid f1` 下降约 `0.02748`，recall 下降约 `0.12384`。
+- 对 CMeEE 这类实体识别任务，召回下降风险更关键，因此当前更建议默认开启 sparse loss mask。
+- 训练时间差异不明显，用户本轮未记录显存变化。
+
+### 本次代码状态
+
+- 已将 `CMeEE_GlobalPointer.py` 恢复为默认开启 sparse loss mask：
+  - `sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'`
+- 后续仍可通过 `GP_SPARSE_LOSS_MASK=0` 关闭该机制做临时对照。
