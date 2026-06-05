@@ -71,3 +71,22 @@ python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
 - 这是第一版 Sparse GlobalPointer 原型，目标是先验证“候选稀疏化”和“召回保持”是否可行。
 - 当前版本主要减少 loss/decoding 参与的 span 候选和验证输出候选数；还没有重写 GlobalPointer 内部矩阵计算。
 - 后续如果该版本验证稳定，再继续做结构反哺式 span 图。
+
+## 2026-06-05 12:54:13 +08:00
+
+### 本次新增改动
+
+- 为 Sparse GlobalPointer 做 1 epoch 对照实验，将 `CMeEE_GlobalPointer.py` 中的训练阶段 sparse loss mask 直接关闭：
+  - 原逻辑：`sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'`
+  - 当前逻辑：`sparse_loss_mask = False`
+- 当前设置用于验证“训练阶段 sparse loss mask 是否带来收益”。
+- 注意：预测阶段 sparse decode 仍然保留，包括最大 span 长度过滤和 top-k 候选保留。
+
+### 对照实验目的
+
+- 和上一轮默认开启 sparse loss mask 的 1 epoch 结果对比。
+- 重点观察：
+  - `valid f1`
+  - `precision`
+  - `recall`
+  - 训练时间和显存是否变化

@@ -34,7 +34,7 @@ batch_size = 16
 eval_batch_size = int(os.environ.get('GP_EVAL_BATCH_SIZE', '16'))
 sparse_max_span_len = int(os.environ.get('GP_SPARSE_MAX_SPAN_LEN', '128'))
 sparse_topk = int(os.environ.get('GP_SPARSE_TOPK', '512'))
-sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'
+sparse_loss_mask = False
 learning_rate = 2e-5
 categories = set()
 TQDM_KWARGS = dict(ncols=100, mininterval=2, leave=False)
