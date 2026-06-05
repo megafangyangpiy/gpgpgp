@@ -195,3 +195,40 @@ os.environ['GP_EXPERIMENT_MODE'] = '2'
 ```bash
 python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
 ```
+
+## 2026-06-05 14:29:45 +08:00
+
+### 原版与 Sparse GlobalPointer 10 epoch 对比结果
+
+- 原版 GlobalPointer，`GP_EXPERIMENT_MODE=1`：
+  - 最佳验证结果出现在 epoch 4。
+  - `best valid f1 = 0.65665`
+  - 对应 `precision = 0.66922`
+  - 对应 `recall = 0.64453`
+  - 第 1 个 epoch 时间约 `387s`
+  - 后续 epoch 时间约 `310s - 319s`
+- Sparse GlobalPointer，`GP_EXPERIMENT_MODE=2`，`GP_SPARSE_MAX_SPAN_LEN=128`，`GP_SPARSE_TOPK=512`，开启 sparse loss mask：
+  - 最佳验证结果出现在 epoch 5。
+  - `best valid f1 = 0.65023`
+  - 对应 `precision = 0.64948`
+  - 对应 `recall = 0.65099`
+  - 第 1 个 epoch 时间约 `424s`
+  - 后续 epoch 时间约 `326s - 335s`
+
+### 实验结论
+
+- 当前 Sparse GlobalPointer 原型没有带来预期收益：
+  - 没有提升验证集 F1。
+  - 没有减少训练时间。
+  - 用户观察到显存占用也没有明显下降。
+- 当前原型只在 loss 和 decode 阶段应用 sparse mask，没有减少 `GlobalPointer` 层内部的 dense token-pair score 矩阵计算。
+- 因此，这版实现不能支撑“减少计算量/降低显存”的论文主张，只能作为早期失败原型记录。
+
+### 后续方向
+
+- 如果继续做 Sparse GlobalPointer，需要实现真正的候选级稀疏计算：
+  - 先预测边界或候选 span。
+  - 只 gather top-k span 的起止向量。
+  - 只对候选 span 计算类别分数。
+  - 避免构造完整 `[batch, entity_type, seq_len, seq_len]` 打分矩阵。
+- 否则，当前 sparse mask 版本不建议作为核心创新继续使用。
