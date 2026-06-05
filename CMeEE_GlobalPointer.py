@@ -32,9 +32,20 @@ maxlen = 256
 epochs = 10
 batch_size = 16
 eval_batch_size = int(os.environ.get('GP_EVAL_BATCH_SIZE', '16'))
-sparse_max_span_len = int(os.environ.get('GP_SPARSE_MAX_SPAN_LEN', '128'))
-sparse_topk = int(os.environ.get('GP_SPARSE_TOPK', '512'))
-sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'
+experiment_mode = int(os.environ.get('GP_EXPERIMENT_MODE', '2'))
+if experiment_mode not in (1, 2):
+    raise ValueError('GP_EXPERIMENT_MODE must be 1 or 2.')
+
+if experiment_mode == 1:
+    experiment_name = 'original_globalpointer'
+    sparse_max_span_len = 0
+    sparse_topk = 0
+    sparse_loss_mask = False
+else:
+    experiment_name = 'sparse_globalpointer'
+    sparse_max_span_len = int(os.environ.get('GP_SPARSE_MAX_SPAN_LEN', '128'))
+    sparse_topk = int(os.environ.get('GP_SPARSE_TOPK', '512'))
+    sparse_loss_mask = os.environ.get('GP_SPARSE_LOSS_MASK', '1') != '0'
 learning_rate = 2e-5
 categories = set()
 TQDM_KWARGS = dict(ncols=100, mininterval=2, leave=False)
@@ -50,14 +61,21 @@ PRETRAINED_DIR = os.path.join(
 )
 DATA_DIR = os.path.join(INPUT_DIR, 'data', 'CMeEE')
 BEST_MODEL_PATH = os.path.join(
-    OUTPUT_DIR, 'best_model_cmeee_globalpointer.weights'
+    OUTPUT_DIR, 'best_model_cmeee_%s.weights' % experiment_name
 )
-PREDICT_PATH = os.path.join(OUTPUT_DIR, 'CMeEE_test.json')
+PREDICT_PATH = os.path.join(OUTPUT_DIR, 'CMeEE_test_%s.json' % experiment_name)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 config_path = os.path.join(PRETRAINED_DIR, 'bert_config.json')
 checkpoint_path = os.path.join(PRETRAINED_DIR, 'bert_model.ckpt')
 dict_path = os.path.join(PRETRAINED_DIR, 'vocab.txt')
+
+print('experiment_mode: %s (%s)' % (experiment_mode, experiment_name))
+print(
+    'sparse_config: max_span_len=%s, topk=%s, loss_mask=%s' %
+    (sparse_max_span_len, sparse_topk, sparse_loss_mask)
+)
+print('best_model_path: %s' % BEST_MODEL_PATH)
 
 
 def load_data(filename):
@@ -168,6 +186,8 @@ model.compile(
 
 
 def apply_sparse_decode(scores):
+    if experiment_mode == 1:
+        return scores
     seq_len = scores.shape[-1]
     start = np.arange(seq_len)[:, None]
     end = np.arange(seq_len)[None, :]

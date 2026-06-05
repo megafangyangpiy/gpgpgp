@@ -146,3 +146,52 @@ python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
   - `precision` 从 `0.59538` 升到 `0.71166`。
 - 该结果表现为 precision 提高但 recall 明显下降，暂时不建议把 `256` 作为默认配置。
 - 当前更建议继续保留 `GP_SPARSE_MAX_SPAN_LEN=128` 做完整 10 epoch 实验。
+
+## 2026-06-05 13:28:53 +08:00
+
+### 本次新增改动
+
+- 在 `CMeEE_GlobalPointer.py` 前部新增统一实验模式控制 `GP_EXPERIMENT_MODE`。
+- 当前支持两种模式：
+  - `GP_EXPERIMENT_MODE=1`：原版 GlobalPointer。
+  - `GP_EXPERIMENT_MODE=2`：Sparse GlobalPointer。
+- 默认模式设为 `2`，即继续使用 Sparse GlobalPointer。
+- 当模式为 `1` 时：
+  - 关闭训练阶段 sparse loss mask。
+  - 关闭预测阶段最大 span 长度过滤。
+  - 关闭预测阶段 top-k 候选裁剪。
+- 当模式为 `2` 时：
+  - 使用 `GP_SPARSE_MAX_SPAN_LEN` 控制最大候选 span 长度，默认 `128`。
+  - 使用 `GP_SPARSE_TOPK` 控制预测候选数量，默认 `512`。
+  - 使用 `GP_SPARSE_LOSS_MASK` 控制训练阶段 sparse loss mask，默认开启。
+
+### 输出文件命名调整
+
+- 不同实验模式的最佳权重文件分开保存，避免消融实验互相覆盖：
+  - 原版：`best_model_cmeee_original_globalpointer.weights`
+  - Sparse 版：`best_model_cmeee_sparse_globalpointer.weights`
+- 预测输出文件也按模式区分：
+  - 原版：`CMeEE_test_original_globalpointer.json`
+  - Sparse 版：`CMeEE_test_sparse_globalpointer.json`
+
+### Kaggle 使用方式
+
+- 跑原版 GlobalPointer：
+
+```python
+import os
+os.environ['GP_EXPERIMENT_MODE'] = '1'
+```
+
+- 跑 Sparse GlobalPointer：
+
+```python
+import os
+os.environ['GP_EXPERIMENT_MODE'] = '2'
+```
+
+- 然后运行：
+
+```bash
+python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
+```
