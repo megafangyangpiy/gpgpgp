@@ -278,3 +278,27 @@ python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
 - 当前版本会从所有合法 span 中选取 top-k 候选，并允许图 residual 上调或下调候选分数。
 - 当前目标是验证“结构关系后处理”是否能改变验证集 F1。
 - 如果 mode 3 相比原版 GlobalPointer 没有提升，再考虑是否需要做可训练 span graph，而不是继续在后处理上调参。
+
+## 2026-06-05 15:01:04 +08:00
+
+### Mode 3 单 epoch 初步结果
+
+- 实验设置：
+  - `GP_EXPERIMENT_MODE=3`
+  - `GP_GRAPH_TOPK=256`
+  - `GP_GRAPH_LAMBDA=0.2`
+  - `GP_GRAPH_ISOLATED_PENALTY=0.5`
+- 第 1 个 epoch 训练指标：
+  - `loss = 0.8988`
+  - `global_pointer_f1_score = 0.4578`
+- 第 1 个 epoch 验证指标：
+  - `valid f1 = 0.61128`
+  - `precision = 0.70882`
+  - `recall = 0.53734`
+
+### 初步观察
+
+- mode 3 没有出现运行错误，span graph 解码流程可以跑通。
+- 相比此前原版 10 epoch 日志中的第 1 个 epoch 结果 `valid f1 = 0.60459`，mode 3 第 1 个 epoch 略高。
+- 当前提升主要来自 precision，recall 仍偏低。
+- 单 epoch 结果不足以证明 span graph 有效，建议至少继续跑完整 10 epoch，看 best valid f1 是否超过原版 `0.65665`。
