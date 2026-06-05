@@ -232,3 +232,49 @@ python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
   - 只对候选 span 计算类别分数。
   - 避免构造完整 `[batch, entity_type, seq_len, seq_len]` 打分矩阵。
 - 否则，当前 sparse mask 版本不建议作为核心创新继续使用。
+
+## 2026-06-05 14:39:39 +08:00
+
+### 本次新增改动
+
+- 新增 `GP_EXPERIMENT_MODE=3`，用于运行 `Original GlobalPointer + Span Graph`。
+- mode 3 当前是第一版 span graph 解码原型：
+  - 训练阶段仍使用原版 GlobalPointer loss。
+  - 验证和预测阶段从 GlobalPointer dense scores 中选取 top-k 候选 span。
+  - 对候选 span 构建关系图。
+  - 根据结构邻居分数计算 residual score。
+  - 使用 `final_score = gp_score + lambda * graph_residual` 进行实体筛选。
+
+### Span Graph 当前建模关系
+
+- 包含关系：一个 span 包含另一个 span。
+- 被包含关系：一个 span 被另一个 span 包含。
+- 重叠关系：两个 span 有交集但不是包含关系。
+- 共享起点：两个 span 的 start 相同。
+- 共享终点：两个 span 的 end 相同。
+
+### 新增环境变量
+
+- `GP_GRAPH_TOPK`：每条样本进入 span graph 的候选 span 数量，默认 `256`。
+- `GP_GRAPH_LAMBDA`：图 residual 分数权重，默认 `0.2`。
+- `GP_GRAPH_ISOLATED_PENALTY`：孤立候选 span 的惩罚强度，默认 `0.5`。
+
+### 使用方式
+
+```python
+import os
+os.environ['GP_EXPERIMENT_MODE'] = '3'
+```
+
+然后运行：
+
+```bash
+python /kaggle/input/datasets/megafangyangpiy/gpgpgpgpgp/CMeEE_GlobalPointer.py
+```
+
+### 设计说明
+
+- mode 3 第一版先不引入可训练 GNN，以降低不稳定性。
+- 当前版本会从所有合法 span 中选取 top-k 候选，并允许图 residual 上调或下调候选分数。
+- 当前目标是验证“结构关系后处理”是否能改变验证集 F1。
+- 如果 mode 3 相比原版 GlobalPointer 没有提升，再考虑是否需要做可训练 span graph，而不是继续在后处理上调参。
