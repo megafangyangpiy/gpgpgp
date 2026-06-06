@@ -70,3 +70,18 @@
 
 - 下一次运行时应能正常打印 `run_log_path` 与 `metrics_log_path`。
 - 如果仍在 Kaggle notebook 中运行，日志文件会写入当前 `GP_OUTPUT_DIR`。
+
+## 2026-06-06 09:28:29 +08:00
+
+### 修改范围
+
+- `CMeEE_GlobalPointer.py`
+  - 删除此前未带来 overall F1 实质提升的结构感知方案代码，包括 span-pair 关系、嵌套正例一致性损失、结构感知解码、嵌套分组指标和相关消融开关。
+  - 恢复原始 GlobalPointer baseline 训练标签、交叉熵损失、F1 指标和 `threshold=0` 解码逻辑。
+  - 保留运行日志保存和 epoch 指标 `.jsonl` 记录功能，作为后续实验记录工具。
+  - 修复清理过程中由乱码注释导致的 tokenizer 初始化粘连问题，确保 baseline 可运行。
+
+### 实验判断
+
+- 当前主代码不再默认包含结构感知实验方案。
+- 后续如继续冲 overall F1，应在 baseline 基础上重新选择更有效的增强策略，而不是沿用本次已删除的结构方案。
